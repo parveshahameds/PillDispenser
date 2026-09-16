@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PillDispenser Dashboard</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #070b14;
+      color: #f4f7fb;
+    }
+    .card {
+      width: min(560px, calc(100% - 32px));
+      padding: 32px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 24px;
+      background: rgba(255,255,255,.06);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 24px 80px rgba(0,0,0,.35);
+    }
+    h1 { margin: 0 0 8px; }
+    p { color: #aab4c5; }
+    .connection { margin: 20px 0; font-weight: 700; }
+    .buttons { display: grid; gap: 12px; }
+    button {
+      border: 0;
+      border-radius: 16px;
+      padding: 18px;
+      color: white;
+      background: #1b2942;
+      font-size: 17px;
+      cursor: pointer;
+    }
+    button:hover { background: #263b5f; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .status {
+      margin-top: 22px;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.22);
+      color: #c8d1df;
+      min-height: 24px;
+    }
+    code { color: #dbe7ff; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>💊 PillDispenser</h1>
+    <p>Remote medicine dispenser control</p>
+
+    <div class="connection" id="connection">Connecting...</div>
+
+    <div class="buttons">
+      <button data-command="morning">🌅 Morning Dose · 60°</button>
+      <button data-command="noon">☀️ Noon Dose · 120°</button>
+      <button data-command="night">🌙 Night Dose · 180°</button>
+    </div>
+
+    <div class="status" id="status">No dispensing event yet.</div>
+  </main>
+
+  <script>
+    // Fill these values with your HiveMQ Cloud credentials.
+    // Never commit real credentials to a public repository.
+    const CONFIG = {
+      host: "YOUR_CLUSTER.hivemq.cloud",
+      port: 8884,
+      username: "YOUR_MQTT_USERNAME",
+      password: "YOUR_MQTT_PASSWORD",
+      topicCmd: "pillbox/pillbox01/cmd",
+      topicStatus: "pillbox/pillbox01/status"
+    };
+
+    const connectionEl = document.getElementById("connection");
+    const statusEl = document.getElementById("status");
+    const buttons = [...document.querySelectorAll("button")];
+
+    function setButtons(enabled) {
+      buttons.forEach(button => button.disabled = !enabled);
+    }
+
+    setButtons(false);
+
+    const client = mqtt.connect(`wss://${CONFIG.host}:${CONFIG.port}/mqtt`, {
+      username: CONFIG.username,
+      password: CONFIG.password,
+      reconnectPeriod: 3000,
+      connectTimeout: 10000,
+      clientId: `web-pillbox-${Math.random().toString(16).slice(2)}`
+    });
+
+    client.on("connect", () => {
+      connectionEl.textContent = "🟢 Connected to HiveMQ Cloud";
+      setButtons(true);
+
+      client.subscribe(CONFIG.topicStatus, { qos: 0 }, err => {
+        if (err) {
+          console.error("Subscribe error:", err);
+          statusEl.textContent = "Subscription error.";
+        }
+      });
+    });
+
+    client.on("reconnect", () => {
+      connectionEl.textContent = "🟡 Reconnecting...";
+      setButtons(false);
+    });
+
+    client.on("close", () => {
+      connectionEl.textContent = "🔴 Disconnected";
+      setButtons(false);
+    });
+
+    client.on("error", error => {
+      console.error("MQTT error:", error);
+    });
+
+    client.on("message", (topic, payload) => {
+      const text = payload.toString();
+      statusEl.textContent = `Last event: ${text}`;
+    });
+
+    buttons.forEach(button => {
+      button.addEventListener("click", () => {
+        const command = button.dataset.command;
+        if (!client.connected) return;
+
+        client.publish(CONFIG.topicCmd, command, { qos: 0 }, err => {
+          if (err) {
+            statusEl.textContent = "Failed to send command.";
+            return;
+          }
+          statusEl.textContent = `Command sent: ${command}`;
+        });
+      });
+    });
+  </script>
+</body>
+</html>
